@@ -1,0 +1,507 @@
+---
+title: "501_Report"
+author: "Minghao Wang (710057295)"
+date: "2021/10/27"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The rapid development of information science and communication technology, represented by the Internet, has brought significant changes to people’s production and lifestyle since 1970s. And some Internet products are now considered by public as high-tech industries which can make more and more profits with the global expansion of Internet use. As a result, various financial studies did many programmes to investigate the market value of the Internet industries and predicted the great improvement in economic development. Although the Internet gives the whole society and all humankind visible conveniences, is there any income improvement for individual using the Internet? In other words, is there any relationship between the use of the Internet and individual’s income? Furthermore, if there is evidence shows the relevance between the scale of Internet users and citizen’s income, what kind of mathematical model does these two factors subject to. We use the Internet Availability Rate(IAR) to represent the scale of internet use, which is calculated by the definition: 
+$$IAR = \frac{Number\_of\_Internet\_User}{Population}$$
+And the GDP per capita is used to measure the individual income. The following analysis uses two datasets and gives a conclusion that there is a strong positive correlation between IAR and GDP per Capita. What’s more, it can also be seen from the report that the internet availability rate (IAR) and the gross domestic product pre capita(GDP/C) are subject to a cubic function in general whole data but subject to a linear model considering the internal connection in continent.  
+
+## Objectives
+
+To investigate the particular question if countries that have a higher internet availability rate also have a higher capita gross domestic product, the following objectives will be addressed: Firstly, a sub dataset need to be created from the original datasets, which include a 5-year period information about the internet availability rates and the details of GDP per capita after imputing missing key values and merging countries. Secondly, for the convenience of further analysis, the IAR and GDP/C for each country have to be illustrated in the form of a plot chart for a following visual analysis. Then, the data should be fitted in different mathematical models to reveal the relationship between internet availability rate and the GDP/Capita. In order to give more evident relationship, countries are grouped by continent respectively to reveal regional difference as well. Besides, considering a potential influence of Simpson's Paradox, regional models will be discussed. Finally, a conclusion will be made by the results of analysis and the limitations of analysis method and data should also be discussed. What’s more, the plan of further investigation can be predicted as well. 
+
+## Data
+
+Dataset of global GDP per capita from the Gapminder Data Resource were downloaded and used for this study. This dataset and can be found at <https://www.gapminder.org/data/>, where some associated information,such as the statistical method, can be found. And the Internet Availability Rate data is calculated by The World Bank <https://data.worldbank.org/indicator/IT.NET.USER.ZS>, from 1960 to 2020. We will only concentrate on the 5-year period between 2014 and 2018, as there are too much missing data and inaccurate data before this period. If we take some early data into consideration, it will increase the amount of calculation and error interval as well as reduce the confidence of modelling. Besides, according to the original organizations of the datasets, each dataset has an uncertainty about their latest data, which can't represent the global general trend because of a worldwide accident, covid-19. So we decided only use data up to 2018 to process our report.
+
+```{r,echo=FALSE,include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(raster)
+library(countrycode)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(sjmisc)
+library(sjstats)
+
+# read_dataset
+
+mygpdcsv <- read_csv(file = "C://Users//mhwan//Desktop//501//data//gdpc.csv")
+mynetcsv <- read_csv(file = "C://Users//mhwan//Desktop//501//data//netu.csv")
+
+# select year 2014-2018
+
+gdpyear <- dplyr::select(mygpdcsv, 'country', '2014', '2015', '2016', '2017', '2018')
+netyear <- dplyr::select(mynetcsv, 'country', '2014', '2015', '2016', '2017', '2018')
+
+# impute the missing data
+# drop rows if there is NA value in year 2014
+
+gdpna <- tidyr::drop_na(gdpyear, '2014')
+netna <- tidyr::drop_na(netyear, '2014')
+
+
+# LAST OBSERVATION CARRIED FORWARD
+gdpna[is.na(gdpna$`2015`), '2015'] = gdpna[is.na(gdpna$`2015`), '2014']
+gdpna[is.na(gdpna$`2016`), '2016'] = gdpna[is.na(gdpna$`2016`), '2015']
+gdpna[is.na(gdpna$`2017`), '2017'] = gdpna[is.na(gdpna$`2017`), '2016']
+gdpna[is.na(gdpna$`2018`), '2018'] = gdpna[is.na(gdpna$`2018`), '2017']
+
+netna[is.na(netna$`2015`), '2015'] = netna[is.na(netna$`2015`), '2014']
+netna[is.na(netna$`2016`), '2016'] = netna[is.na(netna$`2016`), '2015']
+netna[is.na(netna$`2017`), '2017'] = netna[is.na(netna$`2017`), '2016']
+netna[is.na(netna$`2018`), '2018'] = netna[is.na(netna$`2018`), '2017']
+
+# Rename the columns before combine datasets
+
+namgdp <- dplyr::rename(gdpna, 
+                        '2014gdp/c'='2014',
+                        '2015gdp/c'='2015',
+                        '2016gdp/c'='2016',
+                        '2017gdp/c'='2017',
+                        '2018gdp/c'='2018')
+
+namnet <- dplyr::rename(netna, 
+                        '2014IAR'='2014',
+                        '2015IAR'='2015',
+                        '2016IAR'='2016',
+                        '2017IAR'='2017',
+                        '2018IAR'='2018')
+
+# join the datasets
+
+temptidy <- dplyr::inner_join(namnet, namgdp)
+
+# calculate mean value and add to temp
+
+temptidy <- dplyr::mutate(temptidy,'gdp_c' = (temptidy$`2014gdp/c`+
+                            temptidy$`2015gdp/c`+
+                            temptidy$`2016gdp/c`+
+                            temptidy$`2017gdp/c`+
+                            temptidy$`2018gdp/c`)/5)
+
+temptidy <- dplyr::mutate(temptidy,'IAR' = (temptidy$`2014IAR`+
+           temptidy$`2015IAR`+
+           temptidy$`2016IAR`+
+           temptidy$`2017IAR`+
+           temptidy$`2018IAR`)/5)
+
+temptidy <- dplyr::select(temptidy, 'country', 'gdp_c', 'IAR')
+
+# grouped the country by continent for further analysis
+
+temptidy <- as.data.frame(temptidy)
+temptidy$continent=countrycode(
+  sourcevar = temptidy[,"country"], 
+  origin = "country.name",
+  destination = "continent"
+)
+
+#tidy dataset is created
+tidydata <- as_tibble(temptidy)
+
+
+write.table(tidydata,"tidydata.csv",row.names=FALSE,col.names=TRUE,sep=",")
+
+# Continent data
+contidata <- tidyr::drop_na(tidydata,'continent')
+contidata <- contidata %>% group_by(continent) %>% summarise(GDP=mean(gdp_c), IAR=mean(IAR))
+
+gdp_con <- ggplot(
+  data = contidata,
+  mapping = aes(
+    x = continent,
+    y = GDP
+  )) +
+  geom_bar(stat = 'identity', fill='lightgreen',colour='white') +
+  labs(x = "Continent", y = "GDP per Capita") +
+  ggtitle("Average GDP/Capita in Different Continents")
+
+IAR_con <- ggplot(
+  data = contidata,
+  mapping = aes(
+    x = continent,
+    y = IAR
+  )) +
+  geom_bar(stat = 'identity', fill='lightblue',colour='white') +
+  labs(x = "Continent", y = "Internet Availability Rate") +
+  ggtitle("Average IAR in Different Continents")
+
+# Analysis
+
+PtG_reg <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+    colour = continent
+  )) +
+  geom_point() +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Scatterplot by Continent")
+
+PtG_smo <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth() +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Smooth modelling")
+
+PtG_li <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth(method = 'lm') +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Linear modelling")
+
+PtG_po <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR^3,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth(method = 'lm') +
+  labs(x = "(Internet Availability Rate)^3", y = "GDP per Capita") +
+  ggtitle("Linear modelling between GDP/Capia and the three power of IAR")
+
+PtG_res <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+    colour = continent
+  )) +
+  geom_point()+
+  stat_smooth(method = 'lm') +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Linear Modelling by Continent")
+
+
+# Hierarchical modelling
+tidylm <- lm(gdp_c~IAR, data = tidydata)
+tidylmer1 <- lmer(gdp_c~IAR + (1|continent), data = tidydata)
+#summary(tidylmer1)
+#tidylmer1vc <- VarCorr(tidylmer1)
+tidylmer2 <- lmer(gdp_c~IAR + (1+IAR|continent), data = tidydata)
+#summary(tidylmer2)
+#tidylmer2vc <- VarCorr(tidylmer2)
+
+#anova(tidylmer1,tidylmer2)
+```
+
+In the first step, we need pre-merge the original datasets and come up with a tidy dataset, as there are different countries and regions and much more than 5 years details in the two datasets. Some columns of years from 2014 to 2018 need to be selected and renamed to avoid redundancy and confusion in further procedure. Meanwhile, the missing data will be imputed according to the **LAST OBSERVATION CARRIED FORWARD** method, because it's not reasonable for GDP/C decreasing as well as Internet Availability Rate hardly drop. If there are some countries having non observation value during 2014-2018 in these datasets, give up these countries and delete their rows in both datasets. Secondly, these 2 datasets need to be combined by `dplyr::inner_join()` and sorted to a tidy dataset according to their primary key, countries, during which some unique countries only shown in particular dataset will be ignored. Then, we will add two new columns which contains the average value of this period respectively in this tidy dataset using `mutate()` function. 
+
+The tidy dataset after merging has a primary key country and 2 key parameter GDP/C($) and IAR(%), which are our main concerned aspects to address our model.
+
+
+```{r tid, echo=FALSE}
+knitr::kable(head(tidydata))
+```
+
+
+After that, an additional columns also need to be generated. It is continent, which will group up countries and it is generated by the R language pack `countrycode`. And then we can see that Africa has lowest GDP/C level while Europe is the highest. Also, when it comes to the IAR, there is a same situation where we can say that IAR and GDP/C have a positive correlation.
+
+
+## Analysis and Results
+
+### Overview in Continent
+
+The first image shows the average GDP per capita in different continent. Generally, countries in Americas, Asia, and Oceania have nearly level of GDP per capita, which took main part of the proportion. While there is a huge gap between Europe and Africa, a predictable result, as Europe has most developed countries and Africa has most developing countries. Americas may need to be divided in two parts as North America and South America have nearly opposite. This may give a uncertainty in hierarchical modelling.  
+
+
+```{r GDP/C, echo=FALSE, fig.cap='Fig1. Continent average GDP per Capita. We can see that Euro has highest level and Africa the lowest, with a huge income gap'}
+gdp_con
+```
+
+
+For the below graph, the Internet Availability Rate for continents shows same relevance with first bar chart. But all the continents except Africa reached a level over 40% IAR. This can leads to a necessity for analysing in different continents respectively.
+
+
+```{r IAR, echo=FALSE, fig.cap='Fig2. Continent average IAR. We can see that it has the same level order with GDP/C, which reveal a relation between these two parameters'}
+IAR_con
+```
+
+
+### Scatter plot and modelling
+
+After a visual statistical modelling in the whole dataset, a scatter plot, IAR as explanatory variable and GDP/C as response variable, is created to give an evidence that GDP/C has a strong  positive connection with IAR. But the point in this chart gave a curve, which is not suitable for linear modelling.
+
+
+```{r scpl, echo=FALSE, fig.cap='Fig3. Linear Modelling of scatter plot. The line in plot failed to fit the shape of point curve exactly'}
+PtG_li
+```
+
+
+To figure out the general mathematical relevance between IAR and GDP/C, a auto method is used to generate a smooth curve and the shape of this smooth curve was similar with power function. So we predicted GDP/C is the response variable of IAR's power. We tried to use IAR from square to 5 power, and finally it showed that 3 power is suitable, which means that GDP/C is linear response variable to IAR^3.
+
+
+```{r smo, echo=FALSE, fig.cap='Fig4. Smooth Modelling of scatter plot. The curve in plot seems subject to a square function or power function'}
+PtG_smo
+```
+
+
+```{r IAR^3, echo=FALSE, fig.cap='Fig5. Linear Modelling between GDP/C and IAR^3. When power is three, linear model has best result and smallest variance'}
+PtG_po
+```
+
+### Grouped scatter plot and modelling
+
+As the parameters have been calculated from different regions, the relation between IAR and GDP/C from same region can be more distinct than them from whole world. So it is necessary to do statistical modelling grouped by continent. And Fig6 confirmed the concern as it shows points in 5 colours, representing 5 continents. For example, points from Africa gathered at the bottom left part of the plot while those from Europe at right. Besides, when we focus only on a specific continent, a general linear connection is more visible than the whole scatter plot. This probably is the consequence of regional aspects which are ignored during global modelling. 
+
+
+```{r plcon, echo=FALSE, fig.cap='Fig6. Scatter plot grouped by Continent. Different colour points gather at some specific part of the plot and shows a relevant linear relationship between IAR and GDP/C. A further linear modelling is going to be addressed.'}
+PtG_reg
+```
+
+
+The linear models in continents show as Fig7, points fit linear function suitable, so it is also suitable for general situation (without grouping continent) The following analysis is going to dealing with task in choosing linear mixed model.  
+
+```{r lmcon, echo=FALSE, fig.cap='Fig7. Linear Modelling grouped by continent respectively. It is obvious that each continent has a suitable linear model which fit the point exactly. So, hierarchical modelling is to be considered to prove a relation between IAR and GDP/C '}
+PtG_res
+```
+
+### Hierarchical modelling
+
+To solve the internal influences of different continents, hierarchical modelling use linear mixed model to solve the problem. 2 models are applied to the tidy dataset. The first one is a random intercepts model (tidylmer1),and the second one is a random slopes model(tidylmer2). We can see the summary of these two method and to choose one efficient model, `anova()` function is used to compare the p-value of the model. And as shown below, `tidylmer2` has a p-value, 7.14e-08, proving that IAR has significant positive influence on GDP/C.
+
+
+```{r lmer, echo=FALSE, tab.cap='Summary of 2 model. The model with a high p-value is good for modelling. As random slopes has a smaller value'}
+summary(tidylmer1)
+summary(tidylmer2)
+anova(tidylmer1,tidylmer2)
+```
+
+As we are now using the random slopes as the hierarchical modelling method. We can get the estimate of the linear model for IAR is 784.458 as well as the estimate of intercept is -33188.671. Finally, we can get a linear model between IAR and GDP/C:
+
+$$GDP/C = -33188.671 + 784.458 \times IAR$$
+
+## Conclusion
+
+This report investigate the relationship between Internet use and average income. After some procedures in data process, we achieved the objective addressed before analysis that the more Internet use actually can increasing individual income, with a linear model: $GDP/C = -33188.671 + 784.458 \times IAR$. That is, every 1 percent in Internet Availability Rate could bring 784.458 dollars income increasing generally. Besides, this relationship is highly influenced by regional factors.
+
+## Limitations
+
+There are some limitations to this investigation that should be noted and avoided. Firstly, the process of tidy dataset should be grouped by more specific region. For example, the Americas can be divided into north part and south part, as both the IAR and GDP/C have huge gap in these 2 regions. Also, Asia has same problem because the internal unbalance development in this large continent. Also, to make the modelling more accurate, we need to give up some data as it is far off average.
+
+And when it comes to hierarchical modelling, more mixed models are useful and we can not just focus on two basic models. Also, when we were dealing missing data, some other methods of imputing are more complex but suitable. As this would have been out of my ability to handle it, this project used a easier method.
+
+## Appendix
+
+The code of the whole report is attached here
+
+Also here:
+<https://github.com/mhwang97/MTHM501>
+
+```{r code, eval=FALSE}
+# packages required
+
+# require()
+install.packages('countrycode')
+install.packages('raster')
+install.packages('arm')
+library(tidyverse)
+library(ggplot2)
+library(raster)
+library(countrycode)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(sjmisc)
+library(sjstats)
+library(arm)
+
+# read_dataset
+
+mygpdcsv <- read_csv(file = "C://Users//mhwan//Desktop//501//data//gdpc.csv")
+mynetcsv <- read_csv(file = "C://Users//mhwan//Desktop//501//data//netu.csv")
+
+# select year 2014-2018
+
+gdpyear <- dplyr::select(mygpdcsv, 'country', '2014', '2015', '2016', '2017', '2018')
+netyear <- dplyr::select(mynetcsv, 'country', '2014', '2015', '2016', '2017', '2018')
+
+# impute the missing data
+# drop rows if there is NA value in year 2014
+
+gdpna <- tidyr::drop_na(gdpyear, '2014')
+netna <- tidyr::drop_na(netyear, '2014')
+
+
+# LAST OBSERVATION CARRIED FORWARD
+gdpna[is.na(gdpna$`2015`), '2015'] = gdpna[is.na(gdpna$`2015`), '2014']
+gdpna[is.na(gdpna$`2016`), '2016'] = gdpna[is.na(gdpna$`2016`), '2015']
+gdpna[is.na(gdpna$`2017`), '2017'] = gdpna[is.na(gdpna$`2017`), '2016']
+gdpna[is.na(gdpna$`2018`), '2018'] = gdpna[is.na(gdpna$`2018`), '2017']
+
+netna[is.na(netna$`2015`), '2015'] = netna[is.na(netna$`2015`), '2014']
+netna[is.na(netna$`2016`), '2016'] = netna[is.na(netna$`2016`), '2015']
+netna[is.na(netna$`2017`), '2017'] = netna[is.na(netna$`2017`), '2016']
+netna[is.na(netna$`2018`), '2018'] = netna[is.na(netna$`2018`), '2017']
+
+# Rename the columns before combine datasets
+
+namgdp <- dplyr::rename(gdpna, 
+                        '2014gdp/c'='2014',
+                        '2015gdp/c'='2015',
+                        '2016gdp/c'='2016',
+                        '2017gdp/c'='2017',
+                        '2018gdp/c'='2018')
+
+namnet <- dplyr::rename(netna, 
+                        '2014IAR'='2014',
+                        '2015IAR'='2015',
+                        '2016IAR'='2016',
+                        '2017IAR'='2017',
+                        '2018IAR'='2018')
+
+# join the datasets
+
+temptidy <- dplyr::inner_join(namnet, namgdp)
+
+# calculate mean value and add to temp
+
+temptidy <- dplyr::mutate(temptidy,'gdp_c' = (temptidy$`2014gdp/c`+
+                            temptidy$`2015gdp/c`+
+                            temptidy$`2016gdp/c`+
+                            temptidy$`2017gdp/c`+
+                            temptidy$`2018gdp/c`)/5)
+
+temptidy <- dplyr::mutate(temptidy,'IAR' = (temptidy$`2014IAR`+
+           temptidy$`2015IAR`+
+           temptidy$`2016IAR`+
+           temptidy$`2017IAR`+
+           temptidy$`2018IAR`)/5)
+
+temptidy <- dplyr::select(temptidy, 'country', 'gdp_c', 'IAR')
+
+# grouped the country by continent for further analysis
+
+temptidy <- as.data.frame(temptidy)
+temptidy$continent=countrycode(
+  sourcevar = temptidy[,"country"], 
+  origin = "country.name",
+  destination = "continent"
+)
+
+#tidy dataset is created
+tidydata <- as_tibble(temptidy)
+
+
+write.table(tidydata,"tidydata.csv",row.names=FALSE,col.names=TRUE,sep=",")
+
+# Continent data
+contidata <- tidyr::drop_na(tidydata,'continent')
+contidata <- contidata %>% group_by(continent) %>% summarise(GDP=mean(gdp_c), IAR=mean(IAR))
+
+gdp_con <- ggplot(
+  data = contidata,
+  mapping = aes(
+    x = continent,
+    y = GDP
+  )) +
+  geom_bar(stat = 'identity', fill='lightgreen',colour='white') +
+  labs(x = "Continent", y = "GDP per Capita") +
+  ggtitle("Average GDP/Capita in Different Continents")
+
+IAR_con <- ggplot(
+  data = contidata,
+  mapping = aes(
+    x = continent,
+    y = IAR
+  )) +
+  geom_bar(stat = 'identity', fill='lightblue',colour='white') +
+  labs(x = "Continent", y = "Internet Availability Rate") +
+  ggtitle("Average IAR in Different Continents")
+
+# Analysis
+
+PtG_reg <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+    colour = continent
+  )) +
+  geom_point() +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Scatterplot by Continent")
+
+PtG_smo <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth() +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Smooth modeling")
+
+PtG_li <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth(method = 'lm') +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Linear modeling")
+
+PtG_po <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR^3,
+    y = gdp_c,
+  )) +
+  geom_point() +
+  stat_smooth(method = 'lm') +
+  labs(x = "(Internet Availability Rate)^3", y = "GDP per Capita") +
+  ggtitle("Linear modeling between GDP/Capia and the three power of IAR")
+
+PtG_res <- ggplot(
+  data = tidydata,
+  mapping = aes(
+    x = IAR,
+    y = gdp_c,
+    colour = continent
+  )) +
+  geom_point()+
+  stat_smooth(method = 'lm') +
+  labs(x = "Internet Availability Rate", y = "GDP per Capita") +
+  ggtitle("Linear Modeling by Continent")
+
+# Hierarchical modelling
+tidylm <- lm(gdp_c~IAR, data = tidydata)
+tidylmer1 <- lmer(gdp_c~IAR + (1|continent), data = tidydata)
+summary(tidylmer1)
+tidylmer1vc <- VarCorr(tidylmer1)
+tidylmer2 <- lmer(gdp_c~IAR + (1+IAR|continent), data = tidydata)
+summary(tidylmer2)
+tidylmer2vc <- VarCorr(tidylmer2)
+
+anova(tidylmer1,tidylmer2)
+```
